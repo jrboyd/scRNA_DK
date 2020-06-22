@@ -1,0 +1,11 @@
+seurat_clusters	bio_name	signature_genes
+0	DAM1	Cd9,Cd63,Lamp1,Spp1,Apoe,Cxcl9
+1	DAM3?	Ercc5,Naaa,Ly86,Mcm6,Ccl4
+2	DAM2	Saa3,Ccl5,Cd74,Apoc1,Spp1,Apoe
+3	prolifMG1	Top2a,Mki67,Ube2c,Birc5,Cxcl10
+4	homeoMG1	Fos,P2ry12,Cx3cr1,Rgs2,Atf3,Btg2
+5	prolifMG2	Top2a,Mki67,Ube2c,Birc5,Isg15,Ifi27l2a
+6	homeoMG2	Son,Tra2b,Fus,Malat1,Mef2a,Mef2c
+7	Neut	Ngp,S100a8,Ly6g
+8	primMG	Ftl1,Fth1,Atox1,Rps26,Rplp1
+9	Tcells	Trbc2,Cd3g,Lck

@@ -1,0 +1,377 @@
+---
+title: "ARichman Seurat"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+DKSC p38 microglia scRNAseq analysis
+05/18/2020
+
+Load Seurat, accompanying packages, and Seurat object
+Suerat object named DKSC.integrated- this is the anchored dataset from Joe Boyd
+```{r}
+library(Seurat)
+library(cowplot)
+library(ggplot2)
+library(dplyr)
+
+DKSC.integrated <- readRDS("~/singlecell/p38microglia/DKSC_Seurat_objects/DKSC.integrated.Rds")
+```
+
+QC
+Data has already been clustered by Joe- that's why it is shown by the cluster and why mitochondrial genes are already labeled
+if mitochondrial genes are not already labeled:
+pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
+
+```{r}
+DKSC.integrated[["percent.mt"]] <- PercentageFeatureSet(DKSC.integrated, pattern = "^mt-")
+VlnPlot(DKSC.integrated, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+nFeature= # unique genes, from UMI
+nCound= # molecules total, from UMI
+percent mt= percent of reads that are from mito
+
+cluster 5 obviously high in mt and low read count- dead cells clustering together
+filtering out dead cells by removing cells with >50% mt reads and <1000 scaled & normalized unique genes (average from cell ranger was over 3000, so by eye in this plot the average is 5000?) Usually remove any cells with < 200 gene reads 
+
+```{r}
+DKSC.integrated <- subset(DKSC.integrated, subset = nFeature_RNA > 1000 & percent.mt < 50)
+VlnPlot(DKSC.integrated, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+Clustering
+Everything we do overwrites what Joe did
+CLuster based on top 2000 most variable features (genes)
+First, need to find the top varirable features
+make a list of the top 10 most variable
+plot out the variable features, with and without gene labels
+
+```{r}
+DKSC.integrated <- FindVariableFeatures(DKSC.integrated, selection.method = "vst", nfeatures = 2000)
+top10 <- head(VariableFeatures(DKSC.integrated), 10)
+plot1 <- VariableFeaturePlot(DKSC.integrated)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+No labeling in plot2... worked the last time? not sure why.
+small group of highly variable genes
+to see first 6 lines of top 10 list, which would include these top 6 genes:
+
+```{r}
+head(top10)
+```
+
+Back to clustering- will use PCAs to generate a UMAP. Need to figure out how many PCs to use
+scale the data
+run a PCA- out to 30 PCs
+heatmap of each PC to see how many contribute to variation
+elbow plot to look for sharp bend, where PCs stop contributing to as much variation
+Jackstraw plot to see significance of each PC
+```{r}
+DKSC.integrated <- ScaleData(DKSC.integrated, verbose = FALSE)
+DKSC.integrated <- RunPCA(DKSC.integrated, npcs = 30, verbose = FALSE)
+
+DimPlot(DKSC.integrated, reduction = "pca")
+DimHeatmap(DKSC.integrated, dims = 1:20, cells = 500, balanced = TRUE)
+
+ElbowPlot(DKSC.integrated)
+
+DKSC.integrated <- JackStraw(DKSC.integrated, num.replicate = 100)
+DKSC.integrated <- ScoreJackStraw(DKSC.integrated, dims = 1:20)
+JackStrawPlot(DKSC.integrated, dims = 1:20)
+```
+
+Can also try a sillouette plot- look for the peaks at a biologically relevant PC- dont want to go too low or too high
+Sillouette plot code
+```{r}
+library(cluster)
+count <- 1
+max_pcs <- 20 ##choose max number of PCs to test
+sil.list <- list()
+for(i in seq(from=1, by=1, to=max_pcs))
+{
+  reduction <- "pca"
+  dims <- 1:i
+  dist.matrix <- dist(x = Embeddings(object = DKSC.integrated[[reduction]])[, dims])
+  clusters <- DKSC.integrated
+  sil <- silhouette(x = as.numeric(x = as.factor(x = clusters)), dist = dist.matrix)
+  ##summary(sil)
+  sil <- sil[, 3]
+  sil.list[[count]] <- sil
+  count <- count+1
+}
+mean.sil.plot <- ggplot() +
+  geom_point(aes(x=seq(from=1,by=1,to=max_pcs),y=unlist(lapply(sil.list,mean)))) +
+  theme_bw() +
+  ylab("mean silhouette coefficient") +
+  xlab("number PCs")
+mean.sil.plot
+```
+Can't get this to run, can't figure out which feature to change
+But dont need it, from other plots, going with 7 PCs
+Always put number of dimenstions the same for runUMAP and find neighbors
+Resolution can change depending on how many clusters you want
+
+Visualize UMAP
+
+to split by wt/cko
+```{r}
+DKSC.integrated <- RunUMAP(DKSC.integrated, reduction = "pca", dims = 1:7)
+DKSC.integrated <- FindNeighbors(DKSC.integrated, reduction = "pca", dims = 1:7)
+DKSC.integrated <- FindClusters(DKSC.integrated, resolution = 0.5)
+
+p1 <- DimPlot(DKSC.integrated, reduction = "umap", group.by = "treatment")
+p2 <- DimPlot(DKSC.integrated, reduction = "umap", label = TRUE)
+plot_grid(p1, p2)
+
+DimPlot(DKSC.integrated, reduction = "umap", split.by = "treatment")
+```
+To identify clusters: 2 ways
+1. find all markers- find only positive DE genes (markers) for every cluster compared to all remaining cells, report only the positive ones. Requirements that the gene is in at least 25% of cells in that cluster and changes by at least 25% expression in that cluster compared to other cells
+Finds markers for all clusters in one command
+
+Table shows top 2 marker genes per cluster
+Make heatmap of these to visualize how well the top 10 (can change this #) markers for each cluster split up the population
+
+Also, save the cluster markers table
+```{r}
+DefaultAssay(DKSC.integrated) <- "RNA"
+
+integrated.allclustermarkers <- FindAllMarkers(DKSC.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+integrated.allclustermarkers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+
+top10 <- integrated.allclustermarkers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(DKSC.integrated, features = top10$gene)
+
+write.csv(integrated.allclustermarkers, file="dim7allmarkers.csv")
+```
+To ID clusters #2- find conserved markers- DE genes found in both WT and KO cells within the cluster compared to all other cells
+Need to do separately for each cluster and output results in CSV file
+```{r}
+cluster0ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 0, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster0ConsMarkers, file="cluster0consmarkers.csv")
+cluster1ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 1, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster1ConsMarkers, file="cluster1consmarkers.csv")
+cluster2ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 2, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster2ConsMarkers, file="cluster2consmarkers.csv")
+cluster3ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 3, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster3ConsMarkers, file="cluster3consmarkers.csv")
+cluster4ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 4, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster4ConsMarkers, file="cluster4consmarkers.csv")
+cluster5ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 5, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster5ConsMarkers, file="cluster5consmarkers.csv")
+cluster6ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 6, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster6ConsMarkers, file="cluster6consmarkers.csv")
+cluster7ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 7, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster7ConsMarkers, file="cluster7consmarkers.csv")
+cluster8ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 8, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster8ConsMarkers, file="cluster8consmarkers.csv")
+cluster9ConsMarkers <- FindConservedMarkers(DKSC.integrated, ident.1 = 9, grouping.var = "treatment", verbose = FALSE)
+write.csv(cluster9ConsMarkers, file="cluster9consmarkers.csv")
+```
+
+To explore marker genes
+Featureplots- maps expression of gene back to UMAP. can split UMAP into WT/KO
+Violin plots- Maps expression, get a better comparison between groups- cant get this running yet- second version plots works, but figure is empty
+```{r}
+FeaturePlot(DKSC.integrated, features = c("Neat1", "Mki67", "Apoe", "Spp1", "S100a8", "Trbc2"), min.cutoff = "q9")
+FeaturePlot(DKSC.integrated, features = c("Neat1", "Apoe", "Trbc2"), split.by = "treatment", max.cutoff = 3, 
+            cols = c("grey", "blue"))
+
+#plots <- VlnPlot(DKSC.integrated, features = c("Neat1", "Mki67", "Cx3cr1", "Gm3448", "Ccl3", "Rgs1"), split.plot = TRUE, 
+#                 pt.size = 0, combine = FALSE)
+#wrap_plots(plots = plots, ncol = 1)
+
+#plots <- VlnPlot(DKSC.integrated, features = c("Neat1", "Ccl4", "Cx3cr1", "Gm3448", "Ccl3", "Rgs1"), split.by = "treatment", 
+#                 pt.size = 0, combine = FALSE)
+#ggplot(plots = plots, ncol = 1)
+
+
+```
+
+Now have identified easy clusters, looking to see if cell cycle is impacting clustering. Cluster 3 markers are proliferation genes. 
+Cell cycle vignette on Seurat
+Load in the required data
+I already have it downloaded from previous times, but need to load the matrix into my workspace so I can make the gene lists
+Score the cells based on number of genes that overlap with their cycling genes- make a score for G2M and for S
+
+```{r}
+exp.mat <- read.table(file = "/slipstream/home/arrichman/singlecell/p38microglia/nestorawa_forcellcycle_expressionMatrix.txt", header = TRUE, 
+as.is = TRUE, row.names = 1)
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+marrowI7 <- CellCycleScoring(DKSC.integrated, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+head(marrowI7[[]])
+RidgePlot(marrowI7, features = c("Pcna", "Hmgb2", "Mcm2", "Birc5"), ncol = 2)
+DimPlot(marrowI7)
+```
+Option to regress out the variation due to cell cycle here.
+See seurat vignette.
+
+Sample and Cluster quantifications
+```{r}
+##to see what we can group by in the seurat obj
+colnames(x = DKSC.integrated[[]])
+##to see first few lines of a column
+head(x = DKSC.integrated$sampleId)
+##or two columns at once
+head(x = DKSC.integrated[[c('nUMI', 'old.ident')]])
+##to see current grouping names- should be bio replicates to start
+Idents(DKSC.integrated)
+##to change how we are grouping the data
+Idents(DKSC.integrated) <- "seurat_clusters"
+
+
+```
+
+To get # cells per cluster and proportion of cells per cluster
+```{r}
+Idents(DKSC.integrated) <- "old.ident"
+cellspercluster <- table(Idents(DKSC.integrated))
+write.csv(cellspercluster, file="cellspercluster7dim.csv")
+
+propcellspercluster <- prop.table(table(Idents(DKSC.integrated)))
+write.csv(propcellspercluster, file="propcellspercluster7dim.csv")
+```
+To get # and proportion cells per sample in each cluster
+```{r}
+Idents(DKSC.integrated) <- "seurat_clusters"
+table(Idents(DKSC.integrated), DKSC.integrated$sampleId)
+cellsperclusterpersample <- table(Idents(DKSC.integrated), DKSC.integrated$sampleId)
+write.csv(cellsperclusterpersample, file="cellsperclusterpersample7dim.csv")
+propcellsperclusterpersample <- prop.table(table(Idents(DKSC.integrated), DKSC.integrated$sampleId), margin = 2)
+write.csv(propcellsperclusterpersample, file="propcellsperclusterpersample7dim.csv")
+```
+To get # and proportion cells per treatment in each cluster
+```{r}
+Idents(DKSC.integrated) <- "treatment"
+table(Idents(DKSC.integrated), DKSC.integrated$sampleId)
+cellspertreatmentpercluster <- table(Idents(DKSC.integrated), DKSC.integrated$sampleId)
+write.csv(cellspertreatmentpercluster, file = "cellspertreatmentpercluster7dim.csv")
+
+propcellspertreatmentpercluster <- prop.table(table(Idents(DKSC.integrated), DKSC.integrated$seurat_clusters), margin = 2)
+write.csv(propcellspertreatmentpercluster, file = "propcellspertreatmentpercluster7dim.csv")
+head(x = DKSC.integrated$seurat_clusters)
+```
+To remove non microglial clusters from the rest of the analysis- create new seurat object without them
+ID'd from markers, cluster7 = Neutrophils, cluster 9= T cells
+```{r}
+Idents(DKSC.integrated) <- "seurat_clusters"
+DKSC.subsetmicroglia7dim <- subset(DKSC.integrated, idents = c("9", "7"), invert = TRUE)
+```
+Plot treatment, cluster ID, sample ID, and cell cycle phase onto PCA and UMAP of the microglial subset
+If you choose to recluster these, should re scale, re normalize, all that from beginning (reclustering not done here- so rescaling, re normalization not shown here, same as from Joe- very simple from Seurat vignettes)
+```{r}
+p3 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "pca", group.by = "treatment")
+p2 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "pca", group.by = "sampleId")
+p1 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "pca", group.by = "seurat_clusters")
+p4 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "pca", group.by = "Phase")
+plot_grid(p1, p2, p3, p4)
+
+p3 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "umap", group.by = "treatment")
+p2 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "umap", group.by = "sampleId")
+p1 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "umap", group.by = "seurat_clusters")
+p4 <- DimPlot(DKSC.subsetmicroglia7dim, reduction = "umap", group.by = "Phase")
+plot_grid(p1, p2, p3, p4)
+```
+Subset each cluster to its own seurat object in order to find DE genes between KO and WT within a cluster
+```{r}
+DKSC.Cluster0 <- subset(DKSC.integrated, subset = seurat_clusters == "0")
+DKSC.Cluster1 <- subset(DKSC.integrated, subset = seurat_clusters == "1")
+DKSC.Cluster2 <- subset(DKSC.integrated, subset = seurat_clusters == "2")
+DKSC.Cluster3 <- subset(DKSC.integrated, subset = seurat_clusters == "3")
+DKSC.Cluster4 <- subset(DKSC.integrated, subset = seurat_clusters == "4")
+DKSC.Cluster5 <- subset(DKSC.integrated, subset = seurat_clusters == "5")
+DKSC.Cluster6 <- subset(DKSC.integrated, subset = seurat_clusters == "6")
+DKSC.Cluster8 <- subset(DKSC.integrated, subset = seurat_clusters == "8")
+```
+Find DE genes between WT and KO in each cluster (dif bt WT and KO)
+output: log fold-chage of the average expression between the two groups. Positive values:feature is more highly expressed in the first group.
+output: pct.1=% of cells where the feature is detected in the first group (ident.1=K- % of cells with the gene in wildtype)
+```{r}
+#same for 0,1,2
+
+Idents(DKSC.Cluster3) <- "treatment"
+Cluster3DEgenes <- FindMarkers(DKSC.Cluster3, ident.1 = "K", ident.2 = "W", verbose = FALSE)
+head(Cluster3DEgenes, n = 15)
+##export into table
+write.csv(Cluster3DEgenes, file="Cluster3DEgenes.csv")
+
+Idents(DKSC.Cluster4) <- "treatment"
+Cluster4DEgenes <- FindMarkers(DKSC.Cluster4, ident.1 = "K", ident.2 = "W", verbose = FALSE)
+head(Cluster4DEgenes, n = 15)
+##export into table
+write.csv(Cluster4DEgenes, file="Cluster4DEgenes.csv")
+
+Idents(DKSC.Cluster5) <- "treatment"
+Cluster5DEgenes <- FindMarkers(DKSC.Cluster5, ident.1 = "K", ident.2 = "W", verbose = FALSE)
+head(Cluster5DEgenes, n = 15)
+##export into table
+write.csv(Cluster5DEgenes, file="Cluster5DEgenes.csv")
+
+Idents(DKSC.Cluster6) <- "treatment"
+Cluster6DEgenes <- FindMarkers(DKSC.Cluster6, ident.1 = "K", ident.2 = "W", verbose = FALSE)
+head(Cluster6DEgenes, n = 15)
+##export into table
+write.csv(Cluster6DEgenes, file="Cluster6DEgenes.csv")
+
+Idents(DKSC.Cluster8) <- "treatment"
+Cluster8DEgenes <- FindMarkers(DKSC.Cluster8, ident.1 = "K", ident.2 = "W", verbose = FALSE)
+head(Cluster8DEgenes, n = 15)
+##export into table
+write.csv(Cluster8DEgenes, file="Cluster8DEgenes.csv")
+```
+To visualize the DE genes vs average expression- dot plot of WT vs KO
+This way is a guess and check if you are labeling the right genes
+There is a way to get interactive plots, where when you put your mouse over the dot it tells you which gene it is.
+Script for this is just adding the hoverplot line to script, I have not been able to get it to work. - from interactive data visualization vignette
+```{r}
+library(ggplot2)
+library(cowplot)
+theme_set(theme_cowplot())
+Idents(DKSC.Cluster8) <- "treatment"
+avgDKSC.Cluster8 <- log1p(AverageExpression(DKSC.Cluster8, verbose = FALSE)$RNA)
+
+#check the new object- column and row names
+colnames(x = avgDKSC.Cluster8)
+rownames(x = avgDKSC.Cluster8)
+
+avgDKSC.Cluster8$gene <- rownames(avgDKSC.Cluster8)
+
+genes.to.label = c("Romo1", "Ncor1", "Rbm3", "Cdkn2d", "Mapk2k3")
+p1 <- ggplot(avgDKSC.Cluster8, aes(W, K)) + geom_point() + ggtitle("Cluster 8")
+p1 <- LabelPoints(plot = p1, points = genes.to.label, repel = TRUE)
+plot_grid(p1)
+
+colnames(x = DKSC.Cluster8)
+HoverLocator(plot = p1, information = FetchData(object = DKSC.Cluster8, vars = c("ident")))
+```
+Heatmap of top 30 variable genes between WT and KO 
+Can't get just 30 features- showing all of them
+```{r}
+Idents(DKSC.Cluster8) <- "treatment"
+top30DE8 <- head((Cluster8DEgenes), n = 30)
+DoHeatmap(DKSC.Cluster8, group.by = "ident", features = top30DE8$gene)
+
+```
+
+To save seurat object
+```{r}
+saveRDS(object = DKSC.integrated, file = "DKSCintegrated7dimsQC.rds")
+```
