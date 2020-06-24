@@ -1,57 +1,115 @@
 #after selecton, find genes correlated to pseudotime and generate modules
 #should be run from monocle directory
-stopifnot(basename(getwd()) == "monocle")
-library(monocle3)
-library(Seurat)
-library(ggplot2)
-library(data.table)
-library(magrittr)
-if(!require(ssvRecipes)){
-    devtools::install_github("jrboyd/ssvRecipes")
+source("Step0_setup.R")
+
+use_loaded = FALSE
+if(exists("monocle_selected_rds")){
+   use_loaded = shiny_overwrite(msg = "Use loaded selection or select again?", yes_prompt = "Use loaded.", no_prompt = "Select again") 
 }
-source("functions_monocle.R")
 
+if(!use_loaded){
+    monocle_selected_rds = file.path(shiny_choose_branch(output_path = out_dir, allow_new = FALSE), "monocle_selected.Rds")
+}
+
+stopifnot(file.exists(monocle_selected_rds))
+sel_branch = readRDS(monocle_selected_rds)
 #change this for every analysis
-out_dir = "result_right_branch"
+out_dir = dirname(monocle_selected_rds)
+stopifnot(dir.exists(out_dir))
 
-dir.create(out_dir, showWarnings = FALSE)
 res_file = function(f)file.path(out_dir, f)
 
-monocle_processed_rds = "DKSC.monocle_processed.Rds"
-monocle_selected_rds = "DKSC.monocle_selected.Rds"
-monocle_used_rds = res_file(monocle_selected_rds)
-if(file.exists(monocle_used_rds)){
-    sel_branch = readRDS(monocle_used_rds)
-}else{
-    sel_branch = readRDS(monocle_selected_rds)
-    file.copy(monocle_selected_rds, monocle_used_rds)    
-}
+
+
+monocle_processed_rds = file.path(monocle_selected_rds %>% dirname %>% dirname, "monocle_processed.Rds")
+stopifnot(file.exists(monocle_processed_rds))
 
 mon = readRDS(monocle_processed_rds)
+meta_dt = as.data.table(pData(mon))
+meta_dt$id = colnames(mon)
+meta_dt[, in_selection := id %in% colnames(sel_branch)]
 
+ggplot(meta_dt[, .(.N), .(genotype, in_selection, seurat_names)], 
+       aes(x = seurat_names, y = N, fill = in_selection)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~genotype)
+
+ggplot(meta_dt[, .(.N), .(genotype, in_selection, seurat_names)], 
+       aes(x = genotype, y = N, fill = in_selection)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~seurat_names, scales = "free_y")
+
+
+cnt_dt = meta_dt[, .(.N), .(seurat_names, seurat_clusters, in_selection)][order(in_selection)][order(seurat_clusters)]
+cnt_dt = dcast(cnt_dt, seurat_names+seurat_clusters~in_selection, fill = 0, value.var = "N")
+if(is.null(cnt_dt[["FALSE"]])) cnt_dt[["FALSE"]] = 0
+setnames(cnt_dt, c("FALSE", "TRUE"), c("not_selected", "in_selection"))
+fwrite(cnt_dt, res_file("selection_count_per_cluster.csv"))
+p_sel_per_cluster = ggplot(meta_dt, aes(x = seurat_names, fill = in_selection)) +
+    geom_bar() +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    scale_fill_manual(values = c("FALSE" = "gray", 'TRUE' = "blue")) +
+    labs(title = "Selection breakdown by Seurat cluster")
+ggsave(res_file("selection_count_per_cluster.png"), p_sel_per_cluster, width = 4.65, height = 3.5)
+ggsave(res_file("selection_count_per_cluster.pdf"), p_sel_per_cluster, width = 4.65, height = 3.5)
+
+.p = my_plot_cells(mon, return_data = TRUE)
+p_dt = as.data.table(.p$data_df)
+.p_sel = my_plot_cells(sel_branch, color_cells_by = "pseudotime", return_data = TRUE) 
+p_dt_sel = as.data.table(.p_sel$data_df)
+p_seg = as.data.table(.p$edge_df)
+p_dt_sel$pseudotime = pseudotime(sel_branch)[p_dt_sel$sample_name]
+p_pseudo = ggplot(p_dt_sel, aes(x = data_dim_1, y = data_dim_2, color = pseudotime))+
+    annotate("point", x = p_dt$data_dim_1, y = p_dt$data_dim_2, size = .1, color = "gray") +
+    geom_point() +
+    annotate("segment", 
+             x= p_seg$source_prin_graph_dim_1, y = p_seg$source_prin_graph_dim_2, 
+             xend = p_seg$target_prin_graph_dim_1, yend = p_seg$target_prin_graph_dim_2, 
+             color = "black") +
+    scale_color_viridis_c(option= "magma") +
+    theme_classic() +
+    labs(title = "Pseudotime of selection")
+ggsave(res_file("plot_pseudotime_of_selection.png"), p_pseudo, width = 6.85, height = 5.8)
+ggsave(res_file("plot_pseudotime_of_selection.pdf"), p_pseudo, width = 6.85, height = 5.8)
 #find gene that correlate with pseudotime
 min_morans = .2 #Feel free to explore different values of Morans test statistic. I find values below .1 pretty noisy looking
 max_q = .05
 
-pr_test_res.sub <- graph_test(sel_branch, neighbor_graph="principal_graph", cores=10)
-dt_test_res = as.data.table(pr_test_res.sub)
-dt_test_res = dt_test_res[order(q_value)]
-fwrite(dt_test_res, res_file("morans_test_full.csv"))
-dt_sig_res = dt_test_res[q_value <= max_q & morans_I >= min_morans]
-fwrite(dt_sig_res, res_file("morans_test_significant.csv"))
+sig_file = res_file("morans_test_significant.csv")
+if(!file.exists(sig_file)){
+    pr_test_res.sub <- graph_test(sel_branch, neighbor_graph="principal_graph", cores=10)
+    dt_test_res = as.data.table(pr_test_res.sub)
+    dt_test_res = dt_test_res[order(q_value)]
+    fwrite(dt_test_res, res_file("morans_test_full.csv"))
+    dt_sig_res = dt_test_res[q_value <= max_q & morans_I >= min_morans]
+    fwrite(dt_sig_res, sig_file)
+}else{
+    dt_sig_res = fread(sig_file)
+}
+
 num_vars = colnames(dt_sig_res)[sapply(dt_sig_res, class) == "numeric"]
 DT::datatable(dt_sig_res) %>%
     DT::formatRound(columns=num_vars, digits=3)
 
 # calculate modules based on correlated genes
-gene_module_df <- find_gene_modules(sel_branch[dt_sig_res$id,], resolution=c(10^seq(-4,-1)), cores = 20)
+module_file = res_file("module_assignment.csv")
+if(!file.exists(module_file)){
+    gene_module_dt <- find_gene_modules(sel_branch[dt_sig_res$id,], 
+                                        resolution=c(10^seq(-4,-1)), 
+                                        cores = 20) %>% as.data.table
+    fwrite(gene_module_dt, module_file)
+}else{
+    gene_module_dt = fread(module_file)
+}
 
-fwrite(gene_module_df, res_file("module_assignment.csv"))
+
+
 
 # look at Seurat clusters in modules
 cell_group_df <- tibble::tibble(cell=row.names(colData(sel_branch)),
                                 cell_group=colData(sel_branch)$seurat_clusters)
-agg_mat <- aggregate_gene_expression(sel_branch, gene_module_df, cell_group_df)
+agg_mat <- aggregate_gene_expression(sel_branch, gene_module_dt, cell_group_df)
 row.names(agg_mat) <- stringr::str_c("Module ", row.names(agg_mat))
 
 #this is ugly but it's the way I know how to do it
@@ -64,7 +122,7 @@ pheat_parts$heatmap = pheat_parts$heatmap +
 p1 = ssvRecipes::plot_hclust_heatmap.assemble(pheat_parts)
 
 p_2_data = my_plot_cells(mon,
-                         genes=gene_module_df %>% dplyr::filter(module %in% c(1,2, 3,11, 6)),
+                         genes=gene_module_dt %>% dplyr::filter(module %in% c(1,2, 3,11, 6)),
                          label_cell_groups=FALSE,
                          show_trajectory_graph=FALSE, scale_to_range = TRUE, cell_size = .5, 
                          return_data = TRUE)
@@ -86,7 +144,7 @@ ggsave(plot = pg_seurat_clusters,
        height = 5.4)
 
 p_sel_modules = plot_cells(sel_branch,
-                           genes=gene_module_df %>% dplyr::filter(module %in% c(1, 3, 4, 11)),
+                           genes=gene_module_dt %>% dplyr::filter(module %in% c(1, 3, 4, 11)),
                            label_cell_groups=FALSE,
                            show_trajectory_graph=FALSE, scale_to_range = TRUE, cell_size = .5) +
     labs(title = "Selected module aggregated expression in Monocle selected region") +
@@ -110,7 +168,7 @@ ps = pseudotime(sel_branch)
 cell_group_df <- tibble::tibble(cell=names(ps),
                                 cell_group=floor(ps))
 
-agg_mat <- aggregate_gene_expression(sel_branch, gene_module_df, cell_group_df)
+agg_mat <- aggregate_gene_expression(sel_branch, gene_module_dt, cell_group_df)
 row.names(agg_mat) <- stringr::str_c("Module ", row.names(agg_mat))
 set.seed(0)
 ph_res = pheatmap::pheatmap(agg_mat, cluster_cols = FALSE,
@@ -141,16 +199,18 @@ p_heatmap_modules = ggplot(agg_dt, aes(x = column, y = row, fill = value)) + geo
 p_heatmap_modules
 ggsave(res_file("plot_modules_heatmap.png"),p_heatmap_modules, width = 5.8, height = 3.8)
 
-tmp =  as.data.table(gene_module_df)
-gm_dt = as.data.table(gene_module_df)[, .(id, module)]
-gm_dt = merge(dt_test_res, gm_dt, by = "id")
+tmp =  as.data.table(gene_module_dt)
+gm_dt = as.data.table(gene_module_dt)[, .(id, module)]
+gm_dt = merge(dt_sig_res, gm_dt, by = "id")
 gm_dt[, module_name := paste("Module", module)]
 gm_dt$module_name = factor(gm_dt$module_name, levels = levels(agg_dt$row))
 gl = split(gm_dt$gene_short_name, gm_dt$module_name)
 
 sel_module_genes = sapply(gl, function(g){
-    dt_test_res[gene_short_name %in% g, gene_short_name[which.max(morans_I)]]
+    dt_sig_res[gene_short_name %in% g, gene_short_name[which.max(morans_I)]]
 })
+lengths(gl)
+
 p_sel_module_genes = my_plot_genes_in_pseudotime(sel_branch, sel_module_genes, ncol = 3)
 p_sel_module_genes = p_sel_module_genes + labs(title = "highest correlated gene per module")
 ggsave(res_file("plot_pseudotime_best_per_module.png"), p_sel_module_genes, width = 5.8, height = 5.5)

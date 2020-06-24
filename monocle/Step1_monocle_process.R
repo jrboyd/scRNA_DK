@@ -1,25 +1,13 @@
 #load and process data with monocle
-#should be run from monocle directory
-stopifnot(basename(getwd()) == "monocle")
-library(monocle3)
-library(Seurat)
-library(ggplot2)
-library(data.table)
-library(magrittr)
-if(!require(ssvRecipes)){
-    devtools::install_github("jrboyd/ssvRecipes")
-}
 
-source("functions_monocle.R")
-# source("functions_setup.R")
 source("Step0_setup.R")
 
 seu = readRDS(seurat_obj_rds)
 
 #if seurat doesn't have cell cycle info
 # seu = CellCycleScoring(seu, 
-                 # s.features = gene_name_hs2mm(Seurat::cc.genes.updated.2019$s.genes), 
-                 # g2m.features = gene_name_hs2mm(Seurat::cc.genes.updated.2019$g2m.genes))
+# s.features = gene_name_hs2mm(Seurat::cc.genes.updated.2019$s.genes), 
+# g2m.features = gene_name_hs2mm(Seurat::cc.genes.updated.2019$g2m.genes))
 
 if(!file.exists(monocle_obj_rds)){
     if(length(data_dirs) < 1) stop("No data directories located. Check `data_path` and `pattern`.")
@@ -55,17 +43,16 @@ if(!file.exists(monocle_obj_rds)){
 seqsetvis::ssvFeatureVenn(list(monocle = colnames(mon), seurat = colnames(seu))) +
     labs(title = "intersection between seurat and monocle barcodes")
 n_before = ncol(mon)
-mon = mon[, colnames(seu)]
+mon = mon[, intersect(colnames(mon), colnames(seu))]
 n_after = ncol(mon)
 
 message(n_before - n_after , " cells removed based on Seurat object. ", n_after, " cells in processed Monocle object.")
 
-
 run_process = TRUE
 if(file.exists(monocle_processed_rds)){
     run_process = shiny_overwrite()
+    message(run_process)
 }
-
 if(run_process){
     #if you want to bring over cluster or other info from Seurat, do it here
     pData(mon)$seurat_names = rename_clust[seu$seurat_clusters[rownames(pData(mon))]]
@@ -75,9 +62,7 @@ if(run_process){
     pData(mon)$Phase = seu$Phase[rownames(pData(mon))]
     pData(mon)$G2M.Score = seu$G2M.Score[rownames(pData(mon))]
     pData(mon)$S.Score = seu$S.Score[rownames(pData(mon))]
-    
     mon = mon[, colnames(seu)]
-    
     table(pData(mon)$seurat_clusters)
     
     
@@ -98,11 +83,13 @@ if(run_process){
     mon <- learn_graph(mon, learn_graph_control = list(minimal_branch_len = minimal_branch_len), use_partition = TRUE)
     plot_cells(mon)
     saveRDS(mon, monocle_processed_rds)
+    message('saved ', monocle_processed_rds)
 }else{
     mon = readRDS(monocle_processed_rds)
+    message('loaded ', monocle_processed_rds)
 }
-## Step 6: Order cells
-colData(mon)$seurat_clusters
+
+message("yeahyeah")
 #random plots
 monocle3::plot_cells(mon, color_cells_by = "seurat_clusters", show_trajectory_graph = FALSE, group_label_size = 8) +
     scale_color_manual(values = get_clusters_colors())
@@ -114,13 +101,53 @@ monocle3::plot_cells(mon, color_cells_by = "genotype", show_trajectory_graph = F
 #there are some annoying monocle3 plotting quirks, this is my way around them
 plot_data = my_plot_cells(mon, return_data = TRUE)
 p_dt = as.data.table(plot_data$data_df)
+seg_dt = as.data.table(plot_data$edge_df)
 setnames(p_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
-lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_clusters)]
+lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_names, seurat_clusters)]
 #combining p_dt with lab_dt allows labels to avoid points
-lab_dt = rbind(lab_dt, p_dt[, .(seurat_clusters = "", UMAP_1, UMAP_2) ])
-p_seurat = ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = seurat_clusters)) +
-    geom_point(size = .3) +
-    ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_clusters), color = "black", size = 5) +
-    scale_color_manual(values = get_clusters_colors()) +
-    theme_classic()
+lab_dt = rbind(lab_dt, p_dt[, .(seurat_names = "", seurat_clusters = "", UMAP_1, UMAP_2) ])
+
+p_seurat = ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = seurat_names)) +
+    geom_point(size = .6) +
+    geom_segment(data = seg_dt, 
+                 aes(x = source_prin_graph_dim_1, 
+                     y = source_prin_graph_dim_2, 
+                     xend = target_prin_graph_dim_1, 
+                     yend = target_prin_graph_dim_2), 
+                 color= "black", size = 1) +
+    ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_names), color = "black", size = 5) +
+    theme_classic() +
+    guides(color = guide_legend(override.aes = list(size = 3))) +
+    labs(title = "Monocle processed data")
 plot(p_seurat)
+ggsave(file.path(out_dir, "plot_processed_seurat_clusters.png"), p_seurat, 
+       width = 6, height = 5)
+ggsave(file.path(out_dir, "plot_processed_seurat_clusters.pdf"), p_seurat, 
+       width = 6, height = 5)
+
+
+
+plots = list(
+    seurat_cluster_choose_plot(mon, show.legend = TRUE, color_by = "seurat_names") + labs(title = "Seurat clusters"),
+    seurat_genotype_choose_plot(mon, show.legend = TRUE, col_scale = c("W" = "black", "K" = "red")) + labs(title = "Genotype"),
+    partition_choose_plot(mon, show.legend = TRUE) + labs(title = "Monocle partition"),
+    seurat_cell_cycle_choose_plot(mon, show.legend = TRUE)  + labs(title = "Cell cycle")
+)
+pg = cowplot::plot_grid(plotlist = plots)
+
+ggsave(file.path(out_dir, "plot_procesed_overview.png"), pg, width = 8*1.5, height = 6*1.5)
+ggsave(file.path(out_dir, "plot_procesed_overview.pdf"), pg, width = 8*1.5, height = 6*1.5)
+
+pg_score = cowplot::plot_grid(ncol = 1,
+                              seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "S.Score", show.trajectory = FALSE)  + 
+                                  labs(title = "S") +
+                                  facet_wrap(~genotype) +
+                                  theme(panel.background = element_rect(fill = "gray30")),
+                              seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "G2M.Score", show.trajectory = FALSE)  + 
+                                  labs(title = "G2M") +
+                                  facet_wrap(~genotype)+
+                                  theme(panel.background = element_rect(fill = "gray30"))
+)
+ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.png"), pg_score, width = 6.5*1.5, height = 6*1.5)
+ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.pdf"), pg_score, width = 6.5*1.5, height = 6*1.5)
+

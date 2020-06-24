@@ -98,6 +98,10 @@ p2 = DimPlot(dksc.integrated, reduction = "umap", group.by = "seurat_clusters",
 cnt_dt = meta_dt[, .N,.(sampleId, treatment, seurat_clusters)]
 cnt_dt[, fraction := N / sum(N), .(sampleId)]
 
+sample_counts = dcast(cnt_dt, seurat_clusters~treatment+sampleId, value.var = "N")
+fwrite(sample_counts, file = "combined_cluster_counts.csv")
+
+
 total_dt = cnt_dt[, .(total = sum(N)), .(seurat_clusters)]
 setkey(total_dt, seurat_clusters)
 lev = levels(total_dt$seurat_clusters)
@@ -118,6 +122,9 @@ p1b = ggplot(cnt_dt, aes(x = sampleId, y = N, fill = treatment)) +
 
 cnt_dt.integrated = meta_dt.integrated[, .N,.(sampleId, treatment, seurat_clusters)]
 cnt_dt.integrated[, fraction := N / sum(N), .(sampleId)]
+
+sample_counts.integrated = dcast(cnt_dt.integrated, seurat_clusters~treatment+sampleId, value.var = "N")
+fwrite(sample_counts.integrated, file = "anchored_cluster_counts.csv")
 
 total_dt = cnt_dt.integrated[, .(total = sum(N)), .(seurat_clusters)]
 setkey(total_dt, seurat_clusters)

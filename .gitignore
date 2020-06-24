@@ -5,3 +5,9 @@
 *.pdf
 *.png
 *.Rds
+*.rds
+monocle/output*
+heatmaps
+gene_references
+anchored_cluster_counts.csv
+combined_cluster_counts.csv

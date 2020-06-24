@@ -903,11 +903,55 @@ partition_choose_plot = function(mon, not_used, show.legend = FALSE){
                      na.rm = TRUE) +
         ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_clusters), color = "gray60", size = 5) +
         # scale_color_manual(values = get_clusters_colors()) +
-        theme_classic()
+        theme_classic() +
+        guides(color = guide_legend(override.aes = list(size = 3)))
     
 }
 
-seurat_cluster_choose_plot = function(mon, not_used, show.legend = FALSE){
+seurat_cluster_choose_plot.alpha = function(mon, not_used, show.legend = FALSE, col_scale = NULL, color_by = "seurat_clusters"){
+    seurat_cluster_choose_plot(mon, not_used, show.legend, col_scale, color_by, point_alpha = .3) +
+        geom_point(alpha = colData(mon)$keep, show.legend = FALSE)
+}
+
+seurat_cluster_choose_plot = function(mon, not_used, show.legend = FALSE, 
+                                      col_scale = NULL, color_by = "seurat_clusters", 
+                                      point_alpha = 1, point_size = .3){
+    plot_data = my_plot_cells(mon, return_data = TRUE)
+    
+    p_dt = as.data.table(plot_data$data_df)
+    setnames(p_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
+    lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), c(color_by)]
+    #combining p_dt with lab_dt allows labels to avoid points
+    
+    append_dt = p_dt[, .(COLOR_BY = "", UMAP_1, UMAP_2) ]
+    setnames(append_dt, "COLOR_BY", color_by)
+    
+    
+    lab_dt = rbind(lab_dt, append_dt)
+    p = ggplot(p_dt, aes_string(x = "UMAP_1", y = "UMAP_2", color = color_by)) +
+        geom_point(size = point_size, show.legend = show.legend, alpha = point_alpha) +
+        geom_segment(data = plot_data$edge_df, aes_string(x = "source_prin_graph_dim_1", 
+                                                          y = "source_prin_graph_dim_2", xend = "target_prin_graph_dim_1", 
+                                                          yend = "target_prin_graph_dim_2"), size = 1, 
+                     color = "black", linetype = "solid", 
+                     na.rm = TRUE) +
+        ggrepel::geom_text_repel(data = lab_dt, aes_string(label = color_by), color = "gray60", size = 5) +
+        
+        theme_classic()+
+        guides(color = guide_legend(override.aes = list(size = 3)))
+    if(is.null(col_scale)){
+        if(p_dt[[color_by]] %>% unique %>% length <= 8){
+            p = p + scale_color_brewer(palette = "Dark2")    
+        }else{
+            p = p + scale_color_discrete()
+        }
+    }else{
+        p = p + scale_color_manual(values = col_scale)
+    }
+    p
+}
+
+seurat_genotype_choose_plot = function(mon, not_used, show.legend = FALSE, col_scale = NULL){
     plot_data = my_plot_cells(mon, return_data = TRUE)
     
     p_dt = as.data.table(plot_data$data_df)
@@ -915,7 +959,7 @@ seurat_cluster_choose_plot = function(mon, not_used, show.legend = FALSE){
     lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_clusters)]
     #combining p_dt with lab_dt allows labels to avoid points
     lab_dt = rbind(lab_dt, p_dt[, .(seurat_clusters = "", UMAP_1, UMAP_2) ])
-    ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = seurat_clusters)) +
+    p = ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = genotype)) +
         geom_point(size = .3, show.legend = show.legend) +
         geom_segment(data = plot_data$edge_df, aes_string(x = "source_prin_graph_dim_1", 
                                                           y = "source_prin_graph_dim_2", xend = "target_prin_graph_dim_1", 
@@ -923,30 +967,14 @@ seurat_cluster_choose_plot = function(mon, not_used, show.legend = FALSE){
                      color = "black", linetype = "solid", 
                      na.rm = TRUE) +
         ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_clusters), color = "gray60", size = 5) +
-        scale_color_manual(values = get_clusters_colors()) +
-        theme_classic()
-    
-}
-
-seurat_genotype_choose_plot = function(mon, not_used, show.legend = FALSE){
-    plot_data = my_plot_cells(mon, return_data = TRUE)
-    
-    p_dt = as.data.table(plot_data$data_df)
-    setnames(p_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
-    lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_clusters)]
-    #combining p_dt with lab_dt allows labels to avoid points
-    lab_dt = rbind(lab_dt, p_dt[, .(seurat_clusters = "", UMAP_1, UMAP_2) ])
-    ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = genotype)) +
-        geom_point(size = .3, show.legend = show.legend) +
-        geom_segment(data = plot_data$edge_df, aes_string(x = "source_prin_graph_dim_1", 
-                                                          y = "source_prin_graph_dim_2", xend = "target_prin_graph_dim_1", 
-                                                          yend = "target_prin_graph_dim_2"), size = 1, 
-                     color = "black", linetype = "solid", 
-                     na.rm = TRUE) +
-        ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_clusters), color = "gray60", size = 5) +
-        scale_color_manual(values = c("wt" = "black", "df4" = "red")) +
-        theme_classic()
-    
+        theme_classic()+
+        guides(color = guide_legend(override.aes = list(size = 3)))
+    if(!is.null(col_scale)){
+        p = p + scale_color_manual(values = col_scale)
+    }else{
+        p = p + scale_color_brewer(palette = "Set1")
+    }
+    p
 }
 
 seurat_cell_cycle_choose_plot = function(mon, not_used, show.legend = FALSE, plot_var = "Phase", show.trajectory = TRUE){
@@ -986,6 +1014,7 @@ seurat_cell_cycle_choose_plot = function(mon, not_used, show.legend = FALSE, plo
             scale_color_brewer(palette = "Dark2") +
             theme_classic()
     }
+    p + guides(color = guide_legend(override.aes = list(size = 3)))
     
 }
 
@@ -1050,3 +1079,24 @@ my_choose_cells = function (cds, reduction_method = c("UMAP", "tSNE", "PCA", "Al
         return(cds[, sel])
     }
 }    
+
+barplot_cnt_per_seurat = function(full_mon, sel_mon, res_file = NULL, out_csv = "selection_count_per_cluster.csv"){
+    meta_dt = as.data.table(pData(full_mon))
+    meta_dt$id = colnames(full_mon)
+    meta_dt[, in_selection := id %in% colnames(sel_mon)]
+    cnt_dt = meta_dt[, .(.N), .(seurat_names, seurat_clusters, in_selection)][order(in_selection)][order(seurat_clusters)]
+    cnt_dt = dcast(cnt_dt, seurat_names+seurat_clusters~in_selection, fill = 0, value.var = "N")
+    if(is.null(cnt_dt[["FALSE"]])) cnt_dt[["FALSE"]] = 0
+    setnames(cnt_dt, c("FALSE", "TRUE"), c("not_selected", "in_selection"))
+    if(!is.null(res_file)){
+        fwrite(cnt_dt, res_file(out_csv))    
+    }
+    
+    p_sel_per_cluster = ggplot(meta_dt, aes(x = seurat_names, fill = in_selection)) +
+        geom_bar() +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+        scale_fill_manual(values = c("FALSE" = "gray", 'TRUE' = "blue")) +
+        labs(title = "Selection breakdown by Seurat cluster")
+    p_sel_per_cluster
+}
