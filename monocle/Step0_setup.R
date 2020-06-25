@@ -9,17 +9,27 @@ if(!require(ssvRecipes)){
     devtools::install_github("jrboyd/ssvRecipes")
 }
 source("functions_monocle.R")
+
+#don't mess with this please
+prefix_processed = "processed"
+prefix_subset = "subset_branch"
+file_loaded = "monocle_loaded.Rds"
+file_processed = "monocle_processed.Rds"
+file_subset = "monocle_selected.Rds"
+
 #this seurat object should already exist
-seurat_obj_rds = "data_alyssa/DKSCintegrated7dimsQC.rds"
+# seurat_obj_rds = "data_alyssa/DKSCintegrated7dimsQC.rds"
+seurat_obj_rds = "DKSCintegrated7dimsQC.rds"
+stopifnot(file.exists(seurat_obj_rds))
 #this monocle object will be created if needed
 
 
 #if you want to start fresh, alter this path or move existing
-output_root_dir = "output_tmp"
-monocle_obj_rds = file.path(output_root_dir, "monocle_loaded.Rds")
+output_root_dir = "output"
+dir.create(output_root_dir, showWarnings = FALSE, recursive = TRUE)
+monocle_obj_rds = file.path(output_root_dir, file_loaded)
 
-prefix_processed = "processed"
-prefix_subset = "subset_branch"
+
 
 ## Step 1 parameters
 GEN = "mm10"
@@ -42,9 +52,9 @@ out_dir = file.path(output_root_dir,
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 monocle_processed_rds = file.path(out_dir,
-                                  paste0("monocle_processed.Rds"))
+                                  paste0(file_processed))
 
-cluster_identities = read.table("cluster_idents.txt", sep = "\t", header = TRUE)
+cluster_identities = read.table("cluster_idents.txt", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 signature_genes = strsplit(cluster_identities$signature_genes, ",")
 
 rename_clust = cluster_identities$bio_name
@@ -120,12 +130,16 @@ shiny_choose_branch <- function(output_path = "output",
                                 allow_new = TRUE) {
     proc_dirs = dir(output_path, pattern = processed_pattern)
     
-    add_prefix = function(x){paste0(prefix_subset, ".", x)}
-    rm_prefix = function(x){sub(paste0(prefix_subset, "\\."), "", x)}
+    add_proc_prefix = function(x){paste0(prefix_processed, ".", x)}
+    rm_proc_prefix = function(x){sub(paste0(prefix_processed, "\\."), "", x)}
+    
+    
+    add_subset_prefix = function(x){paste0(prefix_subset, ".", x)}
+    rm_subset_prefix = function(x){sub(paste0(prefix_subset, "\\."), "", x)}
     
     ui <- miniPage(
         gadgetTitleBar("Select processed and subset", left = NULL, right = NULL),
-        selectInput("select_processed", label = "Select Processed", choices = proc_dirs),
+        selectInput("select_processed", label = "Select Processed", choices = rm_proc_prefix(proc_dirs)),
         tags$br(),
         uiOutput("dynamic_subset"),
         actionButton("btnExisting", label = "Use Existing"),
@@ -144,20 +158,20 @@ shiny_choose_branch <- function(output_path = "output",
     server <- function(input, output, session) {
         
         output$dynamic_subset = renderUI({
-            proc_dir = file.path(output_path, input$select_processed)
+            proc_dir = file.path(output_path, add_proc_prefix(input$select_processed))
             available_subsets = dir(proc_dir, pattern = anlaysis_pattern)
-            selectInput("select_subset", label = "Select Subset", choices = rm_prefix(available_subsets))
+            selectInput("select_subset", label = "Select Subset", choices = rm_subset_prefix(available_subsets))
         })
         
         observeEvent(input$btnExisting, {
             # Return the brushed points. See ?shiny::brushedPoints.
-            stopApp(file.path(output_path, input$select_processed, add_prefix(input$select_subset)))
+            stopApp(file.path(output_path, add_proc_prefix(input$select_processed), add_subset_prefix(input$select_subset)))
         })
         
         # Handle the Done button being pressed.
         observeEvent(input$btnNew, {
             # Return the brushed points. See ?shiny::brushedPoints.
-            stopApp(file.path(output_path, input$select_processed, add_prefix(input$txt_new_subset)))
+            stopApp(file.path(output_path, add_proc_prefix(input$select_processed), add_subset_prefix(input$txt_new_subset)))
         })
         
         
@@ -165,4 +179,48 @@ shiny_choose_branch <- function(output_path = "output",
     runGadget(ui, server, viewer = dialogViewer("subset"))    
 }
 
-
+shiny_new_name = function(starting_value = "", output_path = "output", processed_pattern = paste0("^", prefix_processed)){
+    stopifnot(dir.exists(output_path))
+    proc_dirs = dir(output_path, pattern = processed_pattern)
+    proc_names = sub(paste0(prefix_processed, "."), "", proc_dirs)
+    
+    add_proc_prefix = function(x){paste0(prefix_processed, ".", x)}
+    rm_proc_prefix = function(x){sub(paste0(prefix_processed, "\\."), "", x)}
+    
+    ui <- miniPage(
+        shinyjs::useShinyjs(),
+        gadgetTitleBar("Create new processed dataset", left = NULL, right = NULL),
+        tags$br(),
+        textInput("txt_new_processed", label = "New processed name", value = starting_value),
+        shinyjs::hidden(tags$h3("dataset must not exist, change the name.", style="color:red;", id = "warn_exist")),
+        actionButton("btnNew", label = "Use New")
+        
+    )
+    
+    server <- function(input, output, session) {
+        
+        observeEvent({
+            input$txt_new_processed
+        }, {
+            if(input$txt_new_processed %in% proc_names){
+                shinyjs::disable("btnNew")
+                shinyjs::show("warn_exist")
+                
+            }else{
+                shinyjs::enable("btnNew")
+                shinyjs::hide("warn_exist")
+            }
+        })
+        # Handle the Done button being pressed.
+        observeEvent(input$btnNew, {
+            if(!input$txt_new_processed %in% proc_names){
+                stopApp(file.path(output_path, add_proc_prefix(input$txt_new_processed)))
+            }
+            # Return the brushed points. See ?shiny::brushedPoints.
+            
+        })
+        
+        
+    }
+    runGadget(ui, server, viewer = dialogViewer("new name"))    
+}

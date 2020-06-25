@@ -14,7 +14,7 @@ seu = readRDS(seurat_obj_rds)
 
 select_dir = shiny_choose_branch(output_path = output_root_dir)
 dir.create(select_dir, showWarnings = FALSE)
-monocle_selected_rds = file.path(select_dir, "monocle_selected.Rds")
+monocle_selected_rds = file.path(select_dir, file_subset)
 
 run_select = TRUE
 if(file.exists(monocle_selected_rds)){
@@ -25,7 +25,10 @@ if(file.exists(monocle_selected_rds)){
 #this is where the analysis really starts
 if(run_select){
     #select a region of interest (or assign sel_branch = mon to analyze everything)
-    sel_branch = my_choose_cells(mon, plot_FUN = seurat_cluster_choose_plot.alpha)
+    FUN = function(mon, not_used){
+        seurat_cluster_choose_plot.alpha(mon, color_by = "seurat_names", show.legend = TRUE)
+    }
+    sel_branch = my_choose_cells(mon, plot_FUN = FUN)
     #select root node
     sel_branch <- order_cells(sel_branch)
     #if you like your results, rename this file so you can repeat them.

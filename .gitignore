@@ -7,6 +7,7 @@
 *.Rds
 *.rds
 monocle/output*
+monocle/backup
 heatmaps
 gene_references
 anchored_cluster_counts.csv

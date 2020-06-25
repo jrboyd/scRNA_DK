@@ -8,7 +8,7 @@ if(exists("monocle_selected_rds")){
 }
 
 if(!use_loaded){
-    monocle_selected_rds = file.path(shiny_choose_branch(output_path = out_dir, allow_new = FALSE), "monocle_selected.Rds")
+    monocle_selected_rds = file.path(shiny_choose_branch(output_path = out_dir, allow_new = FALSE), file_subset)
 }
 
 stopifnot(file.exists(monocle_selected_rds))
@@ -21,7 +21,7 @@ res_file = function(f)file.path(out_dir, f)
 
 
 
-monocle_processed_rds = file.path(monocle_selected_rds %>% dirname %>% dirname, "monocle_processed.Rds")
+monocle_processed_rds = file.path(monocle_selected_rds %>% dirname %>% dirname, file_processed)
 stopifnot(file.exists(monocle_processed_rds))
 
 mon = readRDS(monocle_processed_rds)
