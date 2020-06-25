@@ -49,7 +49,7 @@ n_after = ncol(mon)
 message(n_before - n_after , " cells removed based on Seurat object. ", n_after, " cells in processed Monocle object.")
 
 run_process = TRUE
-if(file.exists(monocle_processed_rds)){
+if(file.exists(default_monocle_processed_rds)){
     run_process = shiny_overwrite()
     message(run_process)
 }
@@ -67,29 +67,21 @@ if(run_process){
     
     
     mon <- preprocess_cds(mon, num_dim = num_pca)
-    
-    red_line_y = .05
-    plot_pc_variance_explained(mon) +
-        annotate("line", x= c(0, num_pca), y = rep(red_line_y, 2), color = "red")
-    
-    
     if(align_apply){
         mon <- align_cds(mon, alignment_group = "genotype")    
     }
-    
     mon = reduce_dimension(mon, reduction_method = "UMAP", cores = 20)
     mon = cluster_cells(mon)
     #minimal_branch_len is quite important and controls the detail of branches
     mon <- learn_graph(mon, learn_graph_control = list(minimal_branch_len = minimal_branch_len), use_partition = TRUE)
     plot_cells(mon)
-    saveRDS(mon, monocle_processed_rds)
-    message('saved ', monocle_processed_rds)
+    saveRDS(mon, default_monocle_processed_rds)
+    message('saved ', default_monocle_processed_rds)
 }else{
-    mon = readRDS(monocle_processed_rds)
-    message('loaded ', monocle_processed_rds)
+    mon = readRDS(default_monocle_processed_rds)
+    message('loaded ', default_monocle_processed_rds)
 }
 
-message("yeahyeah")
 #random plots
 monocle3::plot_cells(mon, color_cells_by = "seurat_clusters", show_trajectory_graph = FALSE, group_label_size = 8) +
     scale_color_manual(values = get_clusters_colors())
@@ -98,56 +90,4 @@ monocle3::plot_cells(mon, color_cells_by = "genotype", show_trajectory_graph = F
     scale_color_manual(values = c(wt = "black", df4 = "red")) +
     guides(color = guide_legend())
 
-#there are some annoying monocle3 plotting quirks, this is my way around them
-plot_data = my_plot_cells(mon, return_data = TRUE)
-p_dt = as.data.table(plot_data$data_df)
-seg_dt = as.data.table(plot_data$edge_df)
-setnames(p_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
-lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_names, seurat_clusters)]
-#combining p_dt with lab_dt allows labels to avoid points
-lab_dt = rbind(lab_dt, p_dt[, .(seurat_names = "", seurat_clusters = "", UMAP_1, UMAP_2) ])
-
-p_seurat = ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = seurat_names)) +
-    geom_point(size = .6) +
-    geom_segment(data = seg_dt, 
-                 aes(x = source_prin_graph_dim_1, 
-                     y = source_prin_graph_dim_2, 
-                     xend = target_prin_graph_dim_1, 
-                     yend = target_prin_graph_dim_2), 
-                 color= "black", size = 1) +
-    ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_names), color = "black", size = 5) +
-    theme_classic() +
-    guides(color = guide_legend(override.aes = list(size = 3))) +
-    labs(title = "Monocle processed data")
-plot(p_seurat)
-ggsave(file.path(out_dir, "plot_processed_seurat_clusters.png"), p_seurat, 
-       width = 6, height = 5)
-ggsave(file.path(out_dir, "plot_processed_seurat_clusters.pdf"), p_seurat, 
-       width = 6, height = 5)
-
-
-
-plots = list(
-    seurat_cluster_choose_plot(mon, show.legend = TRUE, color_by = "seurat_names") + labs(title = "Seurat clusters"),
-    seurat_genotype_choose_plot(mon, show.legend = TRUE, col_scale = c("W" = "black", "K" = "red")) + labs(title = "Genotype"),
-    partition_choose_plot(mon, show.legend = TRUE) + labs(title = "Monocle partition"),
-    seurat_cell_cycle_choose_plot(mon, show.legend = TRUE)  + labs(title = "Cell cycle")
-)
-pg = cowplot::plot_grid(plotlist = plots)
-
-ggsave(file.path(out_dir, "plot_procesed_overview.png"), pg, width = 8*1.5, height = 6*1.5)
-ggsave(file.path(out_dir, "plot_procesed_overview.pdf"), pg, width = 8*1.5, height = 6*1.5)
-
-pg_score = cowplot::plot_grid(ncol = 1,
-                              seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "S.Score", show.trajectory = FALSE)  + 
-                                  labs(title = "S") +
-                                  facet_wrap(~genotype) +
-                                  theme(panel.background = element_rect(fill = "gray30")),
-                              seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "G2M.Score", show.trajectory = FALSE)  + 
-                                  labs(title = "G2M") +
-                                  facet_wrap(~genotype)+
-                                  theme(panel.background = element_rect(fill = "gray30"))
-)
-ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.png"), pg_score, width = 6.5*1.5, height = 6*1.5)
-ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.pdf"), pg_score, width = 6.5*1.5, height = 6*1.5)
 

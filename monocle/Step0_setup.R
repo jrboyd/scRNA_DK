@@ -41,7 +41,7 @@ num_pca = 5
 #increase to remove small branches and decrease to see more
 minimal_branch_len = 6 
 
-out_dir = file.path(output_root_dir,
+default_proc_dir = file.path(output_root_dir,
                     paste0(
                         prefix_processed,
                         ".",
@@ -49,9 +49,9 @@ out_dir = file.path(output_root_dir,
                         num_pca, "_PC.",
                         minimal_branch_len, "_branchLen")
 )
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(default_proc_dir, showWarnings = FALSE, recursive = TRUE)
 
-monocle_processed_rds = file.path(out_dir,
+default_monocle_processed_rds = file.path(default_proc_dir,
                                   paste0(file_processed))
 
 cluster_identities = read.table("cluster_idents.txt", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
@@ -223,4 +223,66 @@ shiny_new_name = function(starting_value = "", output_path = "output", processed
         
     }
     runGadget(ui, server, viewer = dialogViewer("new name"))    
+}
+
+processed_plots = function(mon, out_dir){
+    #there are some annoying monocle3 plotting quirks, this is my way around them
+    plot_data = my_plot_cells(mon, return_data = TRUE)
+    p_dt = as.data.table(plot_data$data_df)
+    seg_dt = as.data.table(plot_data$edge_df)
+    setnames(p_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
+    lab_dt = p_dt[, .(UMAP_1 = median(UMAP_1), UMAP_2 = median(UMAP_2)), .(seurat_names, seurat_clusters)]
+    #combining p_dt with lab_dt allows labels to avoid points
+    lab_dt = rbind(lab_dt, p_dt[, .(seurat_names = "", seurat_clusters = "", UMAP_1, UMAP_2) ])
+    
+    p_seurat = ggplot(p_dt, aes(x = UMAP_1, y = UMAP_2, color = seurat_names)) +
+        geom_point(size = .6) +
+        geom_segment(data = seg_dt, 
+                     aes(x = source_prin_graph_dim_1, 
+                         y = source_prin_graph_dim_2, 
+                         xend = target_prin_graph_dim_1, 
+                         yend = target_prin_graph_dim_2), 
+                     color= "black", size = 1) +
+        ggrepel::geom_text_repel(data = lab_dt, aes(label = seurat_names), color = "black", size = 5) +
+        theme_classic() +
+        guides(color = guide_legend(override.aes = list(size = 3))) +
+        labs(title = "Monocle processed data")
+    plot(p_seurat)
+    ggsave(file.path(out_dir, "plot_processed_seurat_clusters.png"), p_seurat, 
+           width = 6, height = 5)
+    ggsave(file.path(out_dir, "plot_processed_seurat_clusters.pdf"), p_seurat, 
+           width = 6, height = 5)
+    
+    
+    
+    plots = list(
+        seurat_cluster_choose_plot(mon, show.legend = TRUE, color_by = "seurat_names") + labs(title = "Seurat clusters"),
+        seurat_genotype_choose_plot(mon, show.legend = TRUE, col_scale = c("W" = "black", "K" = "red")) + labs(title = "Genotype"),
+        partition_choose_plot(mon, show.legend = TRUE) + labs(title = "Monocle partition"),
+        seurat_cell_cycle_choose_plot(mon, show.legend = TRUE)  + labs(title = "Cell cycle")
+    )
+    pg = cowplot::plot_grid(plotlist = plots)
+    
+    ggsave(file.path(out_dir, "plot_procesed_overview.png"), pg, width = 8*1.5, height = 6*1.5)
+    ggsave(file.path(out_dir, "plot_procesed_overview.pdf"), pg, width = 8*1.5, height = 6*1.5)
+    
+    pg_score = cowplot::plot_grid(ncol = 1,
+                                  seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "S.Score", show.trajectory = FALSE)  + 
+                                      labs(title = "S") +
+                                      facet_wrap(~genotype) +
+                                      theme(panel.background = element_rect(fill = "gray30")),
+                                  seurat_cell_cycle_choose_plot(mon, show.legend = TRUE, plot_var = "G2M.Score", show.trajectory = FALSE)  + 
+                                      labs(title = "G2M") +
+                                      facet_wrap(~genotype)+
+                                      theme(panel.background = element_rect(fill = "gray30"))
+    )
+    ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.png"), pg_score, width = 6.5*1.5, height = 6*1.5)
+    ggsave(file.path(out_dir, "plot_processed_cell_cycle_scores.pdf"), pg_score, width = 6.5*1.5, height = 6*1.5)
+    
+    red_line_y = .05
+    p_var = plot_pc_variance_explained(mon) +
+        annotate("line", x= c(0, num_pca), y = rep(red_line_y, 2), color = "red")
+    
+    ggsave(file.path(out_dir, "plot_processed_PCvariance.png"), p_var, width = 4, height = 4)
+    ggsave(file.path(out_dir, "plot_processed_PCvariance.pdf"), p_var, width = 4, height = 4)
 }

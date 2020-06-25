@@ -2,8 +2,8 @@
 #should be run from monocle directory
 source("Step0_setup.R")
 
-stopifnot(file.exists(monocle_processed_rds))
-mon = readRDS(monocle_processed_rds)
+# stopifnot(file.exists(monocle_processed_rds))
+# mon = readRDS(monocle_processed_rds)
 
 #patch to bring in cell clusters
 stopifnot(file.exists(seurat_obj_rds))
@@ -16,14 +16,19 @@ select_dir = shiny_choose_branch(output_path = output_root_dir)
 dir.create(select_dir, showWarnings = FALSE)
 monocle_selected_rds = file.path(select_dir, file_subset)
 
+monocle_processed_rds = file.path(dirname(select_dir), file_processed)
+mon = readRDS(monocle_processed_rds)
+
 run_select = TRUE
 if(file.exists(monocle_selected_rds)){
     run_select = shiny_overwrite(msg = "Selection data found, overwrite?")
+    Sys.sleep(1)
     message(run_select)
 }
 
 #this is where the analysis really starts
 if(run_select){
+    message("Run selection")
     #select a region of interest (or assign sel_branch = mon to analyze everything)
     FUN = function(mon, not_used){
         seurat_cluster_choose_plot.alpha(mon, color_by = "seurat_names", show.legend = TRUE)

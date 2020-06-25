@@ -7,7 +7,23 @@ select_name = sub(paste0(prefix_subset, "."), "", basename(select_dir))
 select_file = file.path(select_dir, file_subset)
 stopifnot(file.exists(select_file))
 
-new_name = shiny_new_name(select_name, output_path = output_root_dir)
+Sys.sleep(1)
+new_proc_dir = shiny_new_name(select_name, output_path = output_root_dir)
+dir.create(new_proc_dir)
+new_proc_file = file.path(new_proc_dir, file_processed)
 
+mon = readRDS(select_file)
 
+mon <- preprocess_cds(mon, num_dim = num_pca)
+if(align_apply){
+    mon <- align_cds(mon, alignment_group = "genotype")    
+}
+mon = reduce_dimension(mon, reduction_method = "UMAP", cores = 20)
+mon = cluster_cells(mon)
+#minimal_branch_len is quite important and controls the detail of branches
+mon <- learn_graph(mon, learn_graph_control = list(minimal_branch_len = minimal_branch_len), use_partition = TRUE)
+plot_cells(mon)
+saveRDS(mon, new_proc_file)
 
+#same plots as normal step 1
+processed_plots(mon, new_proc_dir)
