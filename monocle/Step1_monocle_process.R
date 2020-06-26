@@ -82,12 +82,3 @@ if(run_process){
     message('loaded ', default_monocle_processed_rds)
 }
 
-#random plots
-monocle3::plot_cells(mon, color_cells_by = "seurat_clusters", show_trajectory_graph = FALSE, group_label_size = 8) +
-    scale_color_manual(values = get_clusters_colors())
-monocle3::plot_cells(mon, color_cells_by = "genotype")
-monocle3::plot_cells(mon, color_cells_by = "genotype", show_trajectory_graph = FALSE) +
-    scale_color_manual(values = c(wt = "black", df4 = "red")) +
-    guides(color = guide_legend())
-
-
