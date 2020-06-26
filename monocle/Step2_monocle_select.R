@@ -13,6 +13,7 @@ seu = readRDS(seurat_obj_rds)
 # if(is.null(pData(mon)$G2M.Score)) pData(mon)$G2M.Score = seu$G2M.Score[rownames(pData(mon))]
 
 select_dir = shiny_choose_branch(output_path = output_root_dir)
+stopifnot(nchar(select_dir) > 0)
 dir.create(select_dir, showWarnings = FALSE)
 monocle_selected_rds = file.path(select_dir, file_subset)
 
@@ -20,6 +21,7 @@ monocle_processed_rds = file.path(dirname(select_dir), file_processed)
 mon = readRDS(monocle_processed_rds)
 
 run_select = TRUE
+#if selection rds exists, should it be overwritten?
 if(file.exists(monocle_selected_rds)){
     run_select = shiny_overwrite(msg = "Selection data found, overwrite?")
     Sys.sleep(1)

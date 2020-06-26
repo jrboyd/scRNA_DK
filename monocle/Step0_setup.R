@@ -41,14 +41,23 @@ num_pca = 5
 #increase to remove small branches and decrease to see more
 minimal_branch_len = 6 
 
-default_proc_dir = file.path(output_root_dir,
-                    paste0(
-                        prefix_processed,
-                        ".",
-                        ifelse(align_apply, "align", "unalign"), ".", 
-                        num_pca, "_PC.",
-                        minimal_branch_len, "_branchLen")
-)
+proc_desc = paste0(ifelse(align_apply, "align", "unalign"), ".", 
+                   num_pca, "_PC.",
+                   minimal_branch_len, "_branchLen")
+
+get_proc_dir = function(name, out_dir = output_root_dir, prefix = prefix_processed, suffix = proc_desc){
+    file.path(out_dir,
+              paste0(
+                  prefix,
+                  ".",
+                  name,
+                  ".", 
+                  suffix)
+    )
+}
+
+default_proc_dir = get_proc_dir("full")
+
 dir.create(default_proc_dir, showWarnings = FALSE, recursive = TRUE)
 
 default_monocle_processed_rds = file.path(default_proc_dir,
@@ -214,7 +223,7 @@ shiny_new_name = function(starting_value = "", output_path = "output", processed
         # Handle the Done button being pressed.
         observeEvent(input$btnNew, {
             if(!input$txt_new_processed %in% proc_names){
-                stopApp(file.path(output_path, add_proc_prefix(input$txt_new_processed)))
+                stopApp(input$txt_new_processed)
             }
             # Return the brushed points. See ?shiny::brushedPoints.
             

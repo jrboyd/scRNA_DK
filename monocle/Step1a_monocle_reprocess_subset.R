@@ -8,7 +8,8 @@ select_file = file.path(select_dir, file_subset)
 stopifnot(file.exists(select_file))
 
 Sys.sleep(1)
-new_proc_dir = shiny_new_name(select_name, output_path = output_root_dir)
+new_proc_name = shiny_new_name(select_name, output_path = output_root_dir)
+new_proc_dir = get_proc_dir(new_proc_name)
 dir.create(new_proc_dir)
 new_proc_file = file.path(new_proc_dir, file_processed)
 
