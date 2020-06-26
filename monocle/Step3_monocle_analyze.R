@@ -108,7 +108,7 @@ if(!file.exists(module_file)){
 
 # look at Seurat clusters in modules
 cell_group_df <- tibble::tibble(cell=row.names(colData(sel_branch)),
-                                cell_group=colData(sel_branch)$seurat_clusters)
+                                cell_group=colData(sel_branch)$seurat_names)
 agg_mat <- aggregate_gene_expression(sel_branch, gene_module_dt, cell_group_df)
 row.names(agg_mat) <- stringr::str_c("Module ", row.names(agg_mat))
 
@@ -119,6 +119,7 @@ pheat_parts$heatmap = pheat_parts$heatmap +
     scale_fill_gradientn(colours = c("blue", "white", "red"), limits = c(-lim, lim)) +
     labs(title = "Module expression in Seurat clusters") +
     theme(plot.title = element_text(size = 12))
+pheat_parts$heatmap
 p1 = ssvRecipes::plot_hclust_heatmap.assemble(pheat_parts)
 
 p_2_data = my_plot_cells(mon,
@@ -131,7 +132,7 @@ setnames(p_2_dt, c("data_dim_1", "data_dim_2"), c("UMAP_1", "UMAP_2"))
 p2 = ggplot(p_2_dt, aes(x = UMAP_1, y = UMAP_2, color = value)) +
     annotate("point", x = p_2_dt$UMAP_1, y = p_2_dt$UMAP_2, size = .1, color = "gray60") +
     geom_point(size = .4) +
-    facet_grid(feature_label~seurat_clusters) +
+    facet_grid(feature_label~seurat_names) +
     scale_color_viridis_c() +
     theme(panel.grid = element_blank(), panel.background = element_blank()) +
     labs(title = "Seurat clusters by pseudotime modules", color = "Module\nexpression")
