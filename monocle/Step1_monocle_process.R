@@ -55,7 +55,7 @@ if(file.exists(default_monocle_processed_rds)){
 }
 if(run_process){
     #if you want to bring over cluster or other info from Seurat, do it here
-    pData(mon)$seurat_names = rename_clust[seu$seurat_clusters[rownames(pData(mon))]]
+    pData(mon)$seurat_names = get_cluster_rename()[seu$seurat_clusters[rownames(pData(mon))]]
     pData(mon)$seurat_clusters = seu$seurat_clusters[rownames(pData(mon))]
     pData(mon)$genotype = seu$treatment[rownames(pData(mon))]
     pData(mon)$rep = seu$rep[rownames(pData(mon))]
@@ -82,3 +82,4 @@ if(run_process){
     message('loaded ', default_monocle_processed_rds)
 }
 
+processed_plots(mon, default_proc_dir)

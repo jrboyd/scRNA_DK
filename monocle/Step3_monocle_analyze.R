@@ -73,15 +73,29 @@ p_pseudo = ggplot(p_dt_sel, aes(x = data_dim_1, y = data_dim_2, color = pseudoti
 ggsave(res_file("plot_pseudotime_of_selection.png"), p_pseudo, width = 6.85, height = 5.8)
 ggsave(res_file("plot_pseudotime_of_selection.pdf"), p_pseudo, width = 6.85, height = 5.8)
 #find gene that correlate with pseudotime
-min_morans = .2 #Feel free to explore different values of Morans test statistic. I find values below .1 pretty noisy looking
-max_q = .05
 
-sig_file = res_file("morans_test_significant.csv")
-if(!file.exists(sig_file)){
+
+sig_file = res_file(paste0("morans_test_significant.q_", max_q, ".morans_", min_morans, ".csv"))
+full_file = res_file("morans_test_full.csv")
+if(!file.exists(full_file)){
     pr_test_res.sub <- graph_test(sel_branch, neighbor_graph="principal_graph", cores=10)
     dt_test_res = as.data.table(pr_test_res.sub)
     dt_test_res = dt_test_res[order(q_value)]
-    fwrite(dt_test_res, res_file("morans_test_full.csv"))
+    fwrite(dt_test_res, full_file)
+}else{
+    dt_test_res = fread(full_file)
+}
+
+if(nrow(dt_test_res[morans_I >= min_morans]) < 50){
+    old_morans = min_morans
+    min_morans = round(dt_test_res[60,]$morans_I * .95, 3)
+    # olq_q = max_q
+    # max_q = round(max(dt_test_res[morans_I >= min_morans]$q_value)*1.05, 3)
+    warning("reducing min_morans from ", old_morans, " to ", min_morans," to support module scoring.\nq_value will be ignored.")
+    max_q = 1
+}
+
+if(!file.exists(sig_file)){
     dt_sig_res = dt_test_res[q_value <= max_q & morans_I >= min_morans]
     fwrite(dt_sig_res, sig_file)
 }else{
@@ -102,9 +116,6 @@ if(!file.exists(module_file)){
 }else{
     gene_module_dt = fread(module_file)
 }
-
-
-
 
 # look at Seurat clusters in modules
 cell_group_df <- tibble::tibble(cell=row.names(colData(sel_branch)),
@@ -150,7 +161,8 @@ p_sel_modules = plot_cells(sel_branch,
                            show_trajectory_graph=FALSE, scale_to_range = TRUE, cell_size = .5) +
     labs(title = "Selected module aggregated expression in Monocle selected region") +
     theme(plot.title = element_text(size = 12))
-p_sel_modules
+
+
 ggsave(plot = p_sel_modules, 
        res_file("plot_selected_module_expression.png"), 
        width = 5.8, 
