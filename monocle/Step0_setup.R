@@ -1,5 +1,7 @@
 #should be run from monocle directory
 stopifnot(basename(getwd()) == "monocle")
+rm(list = ls())
+
 library(monocle3)
 library(Seurat)
 library(ggplot2)

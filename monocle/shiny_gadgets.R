@@ -45,7 +45,8 @@ shiny_choose_branch <- function(output_path = "output",
         if(allow_new){
             tags$span(
                 tags$h3("OR"),
-                textInput("txt_new_subset", label = "New subset name"),
+                textInput("txt_new_subset", label = "New subset name", value = "full"),
+                tags$h3("\"full\" is a special value and will skip the selection step."),
                 actionButton("btnNew", label = "Use New")
             )
         }else{
@@ -70,7 +71,7 @@ shiny_choose_branch <- function(output_path = "output",
         # Handle the Done button being pressed.
         observeEvent(input$btnNew, {
             # Return the brushed points. See ?shiny::brushedPoints.
-            stopApp(file.path(output_path, add_proc_prefix(input$select_processed), add_subset_prefix(input$txt_new_subset)))
+            stopApp(file.path(output_path, add_proc_prefix(input$select_processed), add_subset_prefix(tolower(input$txt_new_subset))))
         })
         
         

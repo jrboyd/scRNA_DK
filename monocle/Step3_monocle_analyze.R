@@ -5,19 +5,24 @@ source("Step0_setup.R")
 use_loaded = FALSE
 if(exists("monocle_selected_rds")){
    use_loaded = shiny_overwrite(msg = "Use loaded selection or select again?", yes_prompt = "Use loaded.", no_prompt = "Select again") 
+   message(use_loaded)
 }
-
+Sys.sleep(1)
 if(!use_loaded){
-    monocle_selected_rds = file.path(shiny_choose_branch(output_path = out_dir, allow_new = FALSE), file_subset)
+    Sys.sleep(1)
+    message("select branch")
+    monocle_selected_rds = file.path(shiny_choose_branch(output_path = output_root_dir, allow_new = FALSE), file_subset)
+}else{
+    message("skip select branch")
 }
 
 stopifnot(file.exists(monocle_selected_rds))
 sel_branch = readRDS(monocle_selected_rds)
 #change this for every analysis
-out_dir = dirname(monocle_selected_rds)
-stopifnot(dir.exists(out_dir))
+analyze_out_dir = dirname(monocle_selected_rds)
+stopifnot(dir.exists(analyze_out_dir))
 
-res_file = function(f)file.path(out_dir, f)
+res_file = function(f)file.path(analyze_out_dir, f)
 
 
 
@@ -110,8 +115,9 @@ DT::datatable(dt_sig_res) %>%
 module_file = res_file("module_assignment.csv")
 if(!file.exists(module_file)){
     gene_module_dt <- find_gene_modules(sel_branch[dt_sig_res$id,], 
-                                        resolution=c(10^seq(-4,-1)), 
+                                        resolution=NULL, 
                                         cores = 20) %>% as.data.table
+    message(gene_module_dt$module %>% unique %>% length, " modules found")
     fwrite(gene_module_dt, module_file)
 }else{
     gene_module_dt = fread(module_file)
@@ -156,7 +162,7 @@ ggsave(plot = pg_seurat_clusters,
        height = 5.4)
 
 p_sel_modules = plot_cells(sel_branch,
-                           genes=gene_module_dt %>% dplyr::filter(module %in% c(1, 3, 4, 11)),
+                           genes=gene_module_dt %>% dplyr::filter(module %in% c(1:4)),
                            label_cell_groups=FALSE,
                            show_trajectory_graph=FALSE, scale_to_range = TRUE, cell_size = .5) +
     labs(title = "Selected module aggregated expression in Monocle selected region") +
@@ -241,3 +247,4 @@ write_geneList_matrix = function(gl, file){
 
 
 write_geneList_matrix(gl, res_file("module_heatmap_geneLists.csv"))
+
